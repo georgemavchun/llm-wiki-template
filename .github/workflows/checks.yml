@@ -69,5 +69,7 @@ jobs:
       - name: Privacy preflight on changed wiki files
         run: |
           root="$(python3 -c 'import json; print(json.load(open("wiki.config.json"))["wiki_root"])')"
+          # Schema, readme and page scaffolds hold policy text, not sources; skip them.
           git diff --name-only --diff-filter=AM -z "${{ steps.base.outputs.sha }}" HEAD -- "$root/" \
+            | grep -zvE "^$root/(CLAUDE|README|AGENTS)\.md$|^$root/_templates/" \
             | xargs -0 -r python3 scripts/privacy_preflight.py --quiet

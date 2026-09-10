@@ -94,9 +94,15 @@ fi
 git diff --cached --name-only --diff-filter=AM -z -- "$wiki_root" > "$tmp_dir/wiki_files.z" 2>/dev/null
 tr '\0' '\n' < "$tmp_dir/wiki_files.z" > "$tmp_dir/wiki_files"
 
+# Support files hold policy text (the schema legitimately names the kinds of
+# content it forbids) and page scaffolds; they are not sources and are not
+# scanned. Everything else under the wiki root is.
 set --
 while IFS= read -r wf; do
     [ -z "$wf" ] && continue
+    case "$wf" in
+        "$wiki_root"/CLAUDE.md|"$wiki_root"/README.md|"$wiki_root"/AGENTS.md|"$wiki_root"/_templates/*) continue ;;
+    esac
     set -- "$@" "$wf"
 done < "$tmp_dir/wiki_files"
 

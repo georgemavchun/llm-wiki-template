@@ -41,7 +41,7 @@ Content language: write wiki pages in **English**. Keep raw sources verbatim in 
 
 Everything the agent reads here is sent to the model provider, and everything committed is in git history for good. Treat the repository as **personal but not secret**.
 
-Never store, even in `raw/`: passwords, API keys, tokens, private keys, recovery phrases; government ID, passport, tax or social-security numbers; full card numbers, CVV, full bank account numbers; health, medical or disability details about identifiable people; compensation of identifiable people; privileged legal advice; anything a speaker marked off the record. When a source contains such material, stop before any write and ask the owner whether to retain with redaction, replace with a sanitized extract, or keep only a pointer stub. Report only the category and locator, never the value.
+Never store, even in `raw/`: passwords, API keys, tokens, private keys, recovery phrases; government ID, passport, tax or social-security numbers; full card numbers, CVV, full bank account numbers; health, medical or disability details about identifiable people; compensation of identifiable people; privileged legal advice; anything a speaker asked not to be written down. When a source contains such material, stop before any write and ask the owner whether to retain with redaction, replace with a sanitized extract, or keep only a pointer stub. Report only the category and locator, never the value.
 
 Every page declares `sensitivity:`:
 

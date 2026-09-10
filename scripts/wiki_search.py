@@ -164,7 +164,7 @@ def build_index(wiki_root: Path, config: dict) -> Index:
         slug = path.relative_to(family_dir).with_suffix("").as_posix()
 
         docs.append(
-            Doc(path=path.as_posix(), slug=slug, title=title, term_freqs=term_freqs, length=length)
+            Doc(path=path.relative_to(wiki_root).as_posix(), slug=slug, title=title, term_freqs=term_freqs, length=length)
         )
         for term in term_freqs:
             doc_freq[term] = doc_freq.get(term, 0) + 1
