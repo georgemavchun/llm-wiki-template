@@ -56,9 +56,29 @@ Classes and reason codes are defined in `.claude/skills/wiki-share/references/se
 6. Use the validated ledger, not memory, for the source page's `Discussion by topic`, for the classification counts in `LOG.md`, and for any share candidates.
 7. Delete `.staging/<slug>*` after the ingest completes or after the owner's quarantine decision.
 
-## Known false positives
+## Known false positives and the allowlist
 
 The scanner is deliberately conservative. Typical triggers that are usually harmless in context: the Russian phrase for "between us" used to mean "between our companies", the verb "to record" when someone explains they are pausing a recording, or a discussion of security controls that mentions "bypass" in a defensive sense. Diagnose which pattern fired and where, characterize it honestly — and still wait for the owner's decision. Never edit the staged file to make the scan pass, and never self-authorize.
+
+When the owner decides **retain as-is**, record the decision in `wiki/privacy-allowlist.json` (path set by `wiki.config.json → privacy.allowlist`; create the file if absent):
+
+```json
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "path": "wiki/raw/2026-09-01-team-call.md",
+      "sha256": "<files[0].source.sha256 from the preflight JSON>",
+      "reason_codes": ["explicit-no-record-ru"],
+      "approved_by": "<owner name>",
+      "date": "YYYY-MM-DD",
+      "note": "false positive: 'between us' means between the two companies"
+    }
+  ]
+}
+```
+
+`path` is the file's final location relative to the repository root, so add the entry after deciding the slug and before the `mv`, then re-run the scan on the staged file with `--path-hint <final path>` (or simply after moving it). The entry suppresses only the listed reason codes for that exact file content; any other finding, or any change to the file, blocks again. The git hook and CI honour the same file; CI can audit with `--no-allowlist`. Record the decision in `LOG.md` as part of the ingest entry (`Allowlisted: <reason code>, approved by <owner>`).
 
 ## Producing a sanitized extract
 

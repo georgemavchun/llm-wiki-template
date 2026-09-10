@@ -16,6 +16,10 @@ The shipped families are `sources`, `entities`, `concepts`, `synthesis`. To add 
 4. Add a `## Decisions` heading to `wiki/INDEX.md`, or the matching `INDEX-decisions.md` shard once you shard.
 5. `scripts/new_page.py decisions <slug> --title "..."` and `scripts/wiki_lint.py` both pick up the new family automatically once the config and template exist; nothing else needs code changes.
 
+## Privacy allowlist location
+
+`privacy.allowlist` in `wiki.config.json` names the file that records owner-approved scanner false positives (default `wiki/privacy-allowlist.json`). It is created on demand; keep it under version control so the pre-commit hook and CI see the same decisions.
+
 ## Changing caps and staleness
 
 `wiki.config.json → caps.soft_lines` and `caps.hard_lines` set the page-size thresholds lint watches. `staleness_days` sets how old a `reliability: low` page, a `## Pending Review` section, or an untouched page (`cold_page`) has to be before lint warns about it. Lower `hard_lines` if you want pages split earlier; raise `staleness_days.cold_page` if your wiki is used in bursts rather than continuously.

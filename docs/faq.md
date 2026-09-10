@@ -31,7 +31,7 @@ A section at the bottom of a page for claims that are unverified, contradicted e
 So "what did the source actually say" is always answerable without trusting anyone's paraphrase of it, including the agent's own from six months ago. If a source turns out to be wrong, the correction goes on the wiki page that cites it, under Pending Review, not into the source itself.
 
 **The hook blocked me. How do I override it, and when should I not?**
-`git commit --no-verify` skips the pre-commit hook entirely. Use it only when you have already read why it blocked and are certain the block is wrong, for example a false positive on ordinary text. Never use it to push through a real finding faster; that defeats the reason the hook exists.
+Read why it blocked first. A scanner false positive on ordinary text is handled by an allowlist entry in `wiki/privacy-allowlist.json` (see [privacy.md](privacy.md)); the entry is bound to that file's exact content and reason code, and CI honours it too. An authorized change to a raw file uses `WIKI_ALLOW_RAW_CHANGE=1` and a `redaction:` commit subject. `git commit --no-verify` skips every check and leaves no record; keep it for a broken hook, never for a real finding.
 
 **How do I delete something sensitive that already got committed?**
 Rotate any credential first, then see "If a secret got in" in [privacy.md](privacy.md). Deleting the current file is not enough; it stays in git history until the history itself is rewritten.

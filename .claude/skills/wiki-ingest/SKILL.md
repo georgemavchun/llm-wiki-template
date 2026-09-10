@@ -27,7 +27,7 @@ python3 scripts/privacy_preflight.py <file> --format json
 ```
 
 - Exit `0`: clear. Keep `files[0].source.sha256` and `line_count`; a transcript ledger must bind to them.
-- Exit `2`: **blocked.** Write nothing into `wiki/`. Report only category, reason code and line number, never the value. Ask the owner whether to retain with redaction, replace with a sanitized extract, or keep a pointer stub, and follow [references/transcript-ledger.md](references/transcript-ledger.md) § "Producing a sanitized extract". The scanner is conservative; a false positive still needs the owner's decision — never edit the source to make the scan pass.
+- Exit `2`: **blocked.** Write nothing into `wiki/`. Report only category, reason code and line number, never the value. Ask the owner to choose one of: **retain as-is** (a false positive, recorded in the allowlist), **retain with redaction**, **sanitized extract**, or **pointer stub**. The last three are described in [references/transcript-ledger.md](references/transcript-ledger.md). For retain-as-is, add an entry to `wiki/privacy-allowlist.json` (format in that reference) bound to the file's exact `sha256` and reason code, then re-run the scan; it must now exit `0`. The scanner is conservative; a false positive still needs the owner's decision — never edit the source to make the scan pass, and never write an allowlist entry without the owner's explicit yes.
 - Exit `1`: the scan could not run. Fix the cause; write nothing until it passes.
 
 For a transcript, build the classification ledger now and validate it (`validate_privacy_ledger.py`, exit `0` required; exit `3` is a block, exit `2` is a correction loop, not a question for the user).
