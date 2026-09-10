@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 from datetime import date
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -743,9 +745,10 @@ class ExitCodeTest(WikiLintTestCase):
         self.fixture.add_page("entities/person.md", page_type="entity")
         self.fixture.append_index_bullet("person")
 
-        code = wiki_lint.main(
-            ["--wiki-root", str(self.fixture.wiki_root), "--format", "json"]
-        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = wiki_lint.main(
+                ["--wiki-root", str(self.fixture.wiki_root), "--format", "json"]
+            )
 
         self.assertEqual(code, 0)
 
