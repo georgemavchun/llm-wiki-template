@@ -55,6 +55,13 @@ LEAK_EXEMPT = {"LICENSE"}
 
 SCRIPT_REF = re.compile(r"scripts/(?:hooks/)?[a-z_]+\.py")
 MD_LINK = re.compile(r"\[[^\]]*\]\(([^)#\s]+)(?:#[^)]*)?\)")
+FENCE = re.compile(r"(?ms)^\s{0,3}(`{3,}|~{3,}).*?^\s{0,3}\1[ \t]*$")
+INLINE_CODE = re.compile(r"(`+)(.*?)\1")
+
+
+def prose_only(text: str) -> str:
+    """Strip fenced blocks and inline code so example links are not checked."""
+    return INLINE_CODE.sub(" ", FENCE.sub(" ", text))
 
 
 def parse_frontmatter(text: str) -> dict:
@@ -151,9 +158,9 @@ class SkillContractTest(unittest.TestCase):
     def test_relative_markdown_links_resolve(self):
         for name, path in sorted(self.skills.items()):
             for md in path.rglob("*.md"):
-                text = md.read_text(encoding="utf-8")
+                text = prose_only(md.read_text(encoding="utf-8"))
                 for target in MD_LINK.findall(text):
-                    if target.startswith(("http://", "https://", "mailto:")):
+                    if target.startswith(("http://", "https://", "mailto:")) or "<" in target:
                         continue
                     with self.subTest(file=str(md.relative_to(REPO)), target=target):
                         resolved = (md.parent / target).resolve()

@@ -24,6 +24,12 @@ import wiki_lint  # noqa: E402
 REQUIRED_FRONTMATTER = ("title", "page_type", "reliability", "sensitivity", "sources", "created", "updated", "tags")
 PLACEHOLDER_FILES = ("wiki/CLAUDE.md", "wiki/LOG.md", "README.md", "CUSTOMIZATIONS.md")
 MD_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
+FENCE = re.compile(r"(?ms)^\s{0,3}(`{3,}|~{3,}).*?^\s{0,3}\1[ \t]*$")
+INLINE_CODE = re.compile(r"(`+)(.*?)\1")
+
+
+def prose_only(text: str) -> str:
+    return INLINE_CODE.sub(" ", FENCE.sub(" ", text))
 
 
 def load_config() -> dict:
@@ -104,9 +110,9 @@ class DocumentationLinksTest(unittest.TestCase):
 
     def test_relative_links_resolve(self):
         for doc in self.doc_files():
-            text = doc.read_text(encoding="utf-8")
+            text = prose_only(doc.read_text(encoding="utf-8"))
             for target in MD_LINK.findall(text):
-                if target.startswith(("http://", "https://", "mailto:", "#")):
+                if target.startswith(("http://", "https://", "mailto:", "#")) or "<" in target:
                     continue
                 clean = target.split("#", 1)[0]
                 with self.subTest(doc=str(doc.relative_to(REPO)), target=target):
