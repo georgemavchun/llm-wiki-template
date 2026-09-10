@@ -65,6 +65,14 @@ raw_list=""
 while IFS= read -r line; do
     [ -z "$line" ] && continue
     status_field=$(printf '%s\n' "$line" | cut -f1)
+    first_path=$(printf '%s\n' "$line" | cut -f2)
+    # The inbox is the drop zone, not a cleared source: the owner may edit or
+    # remove files there, and the documented ingest step moves a file from
+    # raw/inbox/ into raw/ (git records that as a rename). Only files that
+    # already live outside inbox/ are immutable.
+    case "$first_path" in
+        "$wiki_root"/raw/inbox/*) continue ;;
+    esac
     case "$status_field" in
         A*) continue ;;
         M*|D*|R*|C*)

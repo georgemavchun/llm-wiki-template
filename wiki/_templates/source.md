@@ -24,6 +24,7 @@ tags: []
 ## Entities mentioned
 
 - [[<entity-slug>]] — <how it appears here>
+- <Name (no page yet)> — <passing mention; plain text until the lazy-creation rule is met>
 
 ## Concepts touched
 

@@ -10,7 +10,7 @@ A compounding, interlinked markdown knowledge base. The agent reads raw sources,
 
 ## Three-layer model
 
-1. **Raw** (`wiki/raw/`) — immutable source material. New items land in `wiki/raw/inbox/`; cleared items move to `wiki/raw/`. The agent never edits, cleans up or summarizes-in-place a raw file. Raw is add-only; a git hook enforces it.
+1. **Raw** (`wiki/raw/`) — immutable source material. New items land in `wiki/raw/inbox/` (the drop zone, which the owner may still edit or empty); cleared items move to `wiki/raw/` and from then on are add-only. The agent never edits, cleans up or summarizes-in-place a raw file. A git hook enforces the add-only rule for everything outside `inbox/`.
 2. **Wiki** (`sources/`, `entities/`, `concepts/`, `synthesis/`) — agent-owned pages. The agent reads, writes and reorganizes freely within the rules below.
 3. **Schema** (this file) — conventions, page types, workflows.
 

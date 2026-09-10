@@ -52,7 +52,8 @@ jobs:
       - name: Raw sources are add-only
         run: |
           root="$(python3 -c 'import json; print(json.load(open("wiki.config.json"))["wiki_root"])')"
-          changed="$(git diff --name-status --diff-filter=MDR "${{ steps.base.outputs.sha }}" HEAD -- "$root/raw/" || true)"
+          # raw/inbox/ is the drop zone and may change freely; a rename out of it is the documented ingest step.
+          changed="$(git diff --name-status --diff-filter=MDR "${{ steps.base.outputs.sha }}" HEAD -- "$root/raw/" | grep -vE "^[MDR][0-9]*[[:space:]]+$root/raw/inbox/" || true)"
           if [ -n "$changed" ]; then
             echo "Modified, deleted or renamed raw sources:"
             echo "$changed"

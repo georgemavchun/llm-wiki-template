@@ -58,7 +58,9 @@ Scaffold and fill `wiki/sources/<slug>.md`:
 python3 scripts/new_page.py sources <slug> --title "<title>" --source raw/<slug>.<ext> --tags a,b
 ```
 
-Fill every section of the template: summary (≤200 words), key claims with location and confidence, entities mentioned, concepts touched, follow-ups, pending review. Set `sensitivity:` from the taxonomy (`personal` by default). Set `reliability:` conservatively; `high` needs corroboration.
+Fill every placeholder in the scaffold, including the `**Source:**` line above the first heading: summary (≤200 words), key claims with location and confidence, entities mentioned, concepts touched, follow-ups, pending review. Set `sensitivity:` from the taxonomy (`personal` by default). Set `reliability:` conservatively; `high` needs corroboration.
+
+In "Entities mentioned" and "Concepts touched", use a `[[slug]]` only for a page that exists or that you are creating in this ingest. A mention that does not clear the lazy-creation bar is listed as plain text with the marker `(no page yet)` so lint does not report a broken link and a later ingest can promote it.
 
 For a transcript add, after `## Summary` and before `## Key claims`:
 

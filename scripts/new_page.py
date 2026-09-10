@@ -85,6 +85,12 @@ def render_page(
     if sources:
         rendered_sources = ", ".join(json.dumps(s) for s in sources)
         text = re.sub(r"(?m)^sources: \[.*\]$", f"sources: [{rendered_sources}]", text, count=1)
+        # The source template's "**Source:**" line links the raw file; fill it
+        # from the first raw/ source so the agent only has to add origin and date.
+        raw_sources = [s for s in sources if s.startswith("raw/")]
+        if raw_sources:
+            raw_name = raw_sources[0][len("raw/"):]
+            text = text.replace("[<file>](../raw/<file>)", f"[{raw_name}](../raw/{raw_name})", 1)
 
     return text
 
@@ -94,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("family", help="page family directory, e.g. entities")
     parser.add_argument("slug", help="kebab-case slug, may be nested (people/ada-lovelace)")
     parser.add_argument("--title")
-    parser.add_argument("--tags", default="")
+    parser.add_argument("--tags", default="", help="comma-separated tags, e.g. --tags pattern,knowledge")
     parser.add_argument("--reliability", default="medium")
     parser.add_argument("--sensitivity", default="personal")
     parser.add_argument("--source", action="append", dest="sources", default=None)
