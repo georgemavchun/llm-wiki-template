@@ -52,7 +52,7 @@ The full procedure, the ledger schema, and how to produce a sanitized extract wh
 Raw sources are add-only by default. The one exception is an owner-authorized privacy, security or legal redaction:
 
 1. Make the smallest effective change to the raw file.
-2. Commit locally with `WIKI_ALLOW_RAW_CHANGE=1 git commit ...`. Without this variable the pre-commit hook refuses any modification or deletion under `wiki/raw/`.
+2. Commit locally with `WIKI_ALLOW_RAW_CHANGE=1 git commit ...`. Without this variable the pre-commit hook refuses any modification, deletion or rename of a file under `wiki/raw/` outside the `raw/inbox/` drop zone (the inbox may change freely; moving a file out of it into `raw/` is the normal ingest step).
 3. Start the commit subject with `redaction:`. CI's raw-add-only check treats a `redaction:` commit as the one allowed exception in that range.
 4. Add a `## [YYYY-MM-DD] redaction | <file>` entry to `wiki/LOG.md` naming the reason category and the affected pages, never the removed content itself.
 

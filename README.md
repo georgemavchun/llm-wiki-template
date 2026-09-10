@@ -99,7 +99,7 @@ Say any of these once Claude Code is open in the repository. Full detail, includ
 
 ## Privacy, in five lines
 
-Everything the agent reads under this repository is sent to the model provider. Keep this wiki in its own repository, away from anything that must not leave your machine. Nothing enters `wiki/raw/` without passing a deterministic scanner first. Raw sources cannot be edited or deleted through Claude Code once placed, and a git hook enforces the same rule at commit time. The full model, including the sensitivity classes and what to do if something slips through, is in [docs/privacy.md](docs/privacy.md).
+Everything the agent reads under this repository is sent to the model provider. Keep this wiki in its own repository, away from anything that must not leave your machine. Nothing enters `wiki/raw/` without passing a deterministic scanner first. Once a source has moved out of the inbox into `wiki/raw/`, it cannot be edited or deleted through Claude Code, and a git hook enforces the same rule at commit time. The full model, including the sensitivity classes and what to do if something slips through, is in [docs/privacy.md](docs/privacy.md).
 
 ## Documentation
 
