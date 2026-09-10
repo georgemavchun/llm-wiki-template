@@ -360,5 +360,270 @@ class PrivacyPreflightCliTest(unittest.TestCase):
         self.assertEqual(payload["files"][0]["source"]["sha256"], expected)
 
 
+class AllowlistTests(unittest.TestCase):
+    """Owner-approved allowlist: config discovery, matching, and error handling."""
+
+    def run_cli(self, *args, input_text=None, cwd=None):
+        # Config discovery walks up from cwd first; pin cwd to the fake project
+        # root in these tests so the real repo's own wiki.config.json (which
+        # points at a not-yet-created wiki/privacy-allowlist.json) is never
+        # found first and short-circuits the lookup.
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), *args],
+            capture_output=True,
+            text=True,
+            input=input_text,
+            check=False,
+            cwd=cwd,
+        )
+
+    def _project(self, tmp_dir, allowlist_entries=None, configure=True):
+        """Build <tmp_dir>/wiki.config.json (+ optional allowlist) as a fake repo root."""
+        project = Path(tmp_dir)
+        (project / "wiki" / "raw").mkdir(parents=True, exist_ok=True)
+        config = {
+            "schema_version": 1,
+            "wiki_root": "wiki",
+            "privacy": {"allowlist": "wiki/privacy-allowlist.json"} if configure else {},
+        }
+        (project / "wiki.config.json").write_text(json.dumps(config), encoding="utf-8")
+        if allowlist_entries is not None:
+            allowlist = {"schema_version": 1, "entries": allowlist_entries}
+            (project / "wiki" / "privacy-allowlist.json").write_text(
+                json.dumps(allowlist), encoding="utf-8"
+            )
+        return project
+
+    def _entry(self, path, text, reason_codes, note=None):
+        entry = {
+            "path": path,
+            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            "reason_codes": reason_codes,
+            "approved_by": "Owner Name",
+            "date": "2026-09-10",
+        }
+        if note is not None:
+            entry["note"] = note
+        return entry
+
+    def test_allowlisted_finding_on_matching_path_and_sha_passes(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            text = "This is off the record.\n"
+            project = self._project(
+                tmp_dir,
+                allowlist_entries=[
+                    self._entry("wiki/raw/team-call.md", text, ["explicit-no-record-en"])
+                ],
+            )
+            source = project / "wiki" / "raw" / "team-call.md"
+            source.write_text(text, encoding="utf-8")
+            result = self.run_cli(str(source), "--format", "json", cwd=str(project))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "pass")
+        record = payload["files"][0]
+        self.assertEqual(record["status"], "pass")
+        self.assertEqual(record["findings"], [])
+        self.assertEqual(len(record["allowed"]), 1)
+        self.assertEqual(record["allowed"][0]["reason_code"], "explicit-no-record-en")
+
+    def test_allowlist_sha_mismatch_still_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            text = "This is off the record.\n"
+            stale_sha = "0" * 64
+            project = self._project(
+                tmp_dir,
+                allowlist_entries=[
+                    {
+                        "path": "wiki/raw/team-call.md",
+                        "sha256": stale_sha,
+                        "reason_codes": ["explicit-no-record-en"],
+                        "approved_by": "Owner Name",
+                        "date": "2026-09-10",
+                    }
+                ],
+            )
+            source = project / "wiki" / "raw" / "team-call.md"
+            source.write_text(text, encoding="utf-8")
+            result = self.run_cli(str(source), "--format", "json", cwd=str(project))
+        self.assertEqual(result.returncode, 2, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "blocked")
+        record = payload["files"][0]
+        self.assertNotIn("allowed", record)
+        self.assertIn(
+            "explicit-no-record-en", {f["reason_code"] for f in record["findings"]}
+        )
+
+    def test_allowlist_reason_code_not_listed_still_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            text = "This is off the record.\n"
+            project = self._project(
+                tmp_dir,
+                allowlist_entries=[
+                    self._entry("wiki/raw/team-call.md", text, ["control-bypass"])
+                ],
+            )
+            source = project / "wiki" / "raw" / "team-call.md"
+            source.write_text(text, encoding="utf-8")
+            result = self.run_cli(str(source), "--format", "json", cwd=str(project))
+        self.assertEqual(result.returncode, 2, result.stderr)
+        payload = json.loads(result.stdout)
+        record = payload["files"][0]
+        self.assertNotIn("allowed", record)
+        self.assertIn(
+            "explicit-no-record-en", {f["reason_code"] for f in record["findings"]}
+        )
+
+    def test_second_unlisted_finding_in_same_file_still_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            text = "This is off the record.\nPassword: correcthorsebattery\n"
+            project = self._project(
+                tmp_dir,
+                allowlist_entries=[
+                    self._entry("wiki/raw/team-call.md", text, ["explicit-no-record-en"])
+                ],
+            )
+            source = project / "wiki" / "raw" / "team-call.md"
+            source.write_text(text, encoding="utf-8")
+            result = self.run_cli(str(source), "--format", "json", cwd=str(project))
+        self.assertEqual(result.returncode, 2, result.stderr)
+        payload = json.loads(result.stdout)
+        record = payload["files"][0]
+        self.assertEqual(record["status"], "blocked")
+        remaining = {f["reason_code"] for f in record["findings"]}
+        self.assertEqual(remaining, {"labelled-secret"})
+        allowed = {f["reason_code"] for f in record["allowed"]}
+        self.assertEqual(allowed, {"explicit-no-record-en"})
+        self.assertNotIn("correcthorsebattery", result.stdout)
+
+    def test_no_allowlist_flag_forces_block(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            text = "This is off the record.\n"
+            project = self._project(
+                tmp_dir,
+                allowlist_entries=[
+                    self._entry("wiki/raw/team-call.md", text, ["explicit-no-record-en"])
+                ],
+            )
+            source = project / "wiki" / "raw" / "team-call.md"
+            source.write_text(text, encoding="utf-8")
+            result = self.run_cli(
+                str(source), "--format", "json", "--no-allowlist", cwd=str(project)
+            )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        payload = json.loads(result.stdout)
+        record = payload["files"][0]
+        self.assertNotIn("allowed", record)
+        self.assertEqual(record["status"], "blocked")
+
+    def test_explicit_allowlist_flag_overrides_config(self):
+        with tempfile.TemporaryDirectory() as project_tmp, tempfile.TemporaryDirectory() as elsewhere:
+            text = "This is off the record.\n"
+            # No wiki.config.json anywhere near the source file.
+            source = Path(elsewhere) / "note.md"
+            source.write_text(text, encoding="utf-8")
+
+            allowlist_path = Path(project_tmp) / "custom-allowlist.json"
+            allowlist_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "entries": [self._entry(str(source), text, ["explicit-no-record-en"])],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = self.run_cli(
+                str(source), "--format", "json", "--allowlist", str(allowlist_path)
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        record = payload["files"][0]
+        self.assertEqual(record["status"], "pass")
+        self.assertEqual(len(record["allowed"]), 1)
+
+    def test_invalid_allowlist_json_errors_without_leaking_and_names_file(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            project = self._project(tmp_dir, allowlist_entries=None)
+            allowlist_path = project / "wiki" / "privacy-allowlist.json"
+            allowlist_path.write_text("{not valid json", encoding="utf-8")
+            source = project / "wiki" / "raw" / "team-call.md"
+            source.write_text("This is off the record.\n", encoding="utf-8")
+            result = self.run_cli(str(source), "--format", "json", cwd=str(project))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(str(allowlist_path.resolve()), result.stderr)
+        self.assertIn("not valid JSON", result.stderr)
+
+    def test_invalid_allowlist_shape_errors_and_names_file(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            project = self._project(tmp_dir, allowlist_entries=None)
+            allowlist_path = project / "wiki" / "privacy-allowlist.json"
+            allowlist_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "entries": [{"path": "x", "sha256": "not-64-hex"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            source = project / "wiki" / "raw" / "team-call.md"
+            source.write_text("This is off the record.\n", encoding="utf-8")
+            result = self.run_cli(str(source), "--format", "json", cwd=str(project))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(str(allowlist_path.resolve()), result.stderr)
+
+    def test_stdin_with_path_hint_respects_allowlist(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            text = "This is off the record.\n"
+            project = self._project(
+                tmp_dir,
+                allowlist_entries=[
+                    self._entry("wiki/raw/team-call.md", text, ["explicit-no-record-en"])
+                ],
+            )
+            allowlist_path = project / "wiki" / "privacy-allowlist.json"
+            result = self.run_cli(
+                "--format",
+                "json",
+                "--stdin",
+                "--path-hint",
+                "wiki/raw/team-call.md",
+                "--allowlist",
+                str(allowlist_path),
+                input_text=text,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        record = payload["files"][0]
+        self.assertEqual(record["path"], "<stdin>")
+        self.assertEqual(record["status"], "pass")
+        self.assertEqual(len(record["allowed"]), 1)
+
+    def test_stdin_without_path_hint_ignores_allowlist(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            text = "This is off the record.\n"
+            project = self._project(
+                tmp_dir,
+                allowlist_entries=[
+                    self._entry("wiki/raw/team-call.md", text, ["explicit-no-record-en"])
+                ],
+            )
+            allowlist_path = project / "wiki" / "privacy-allowlist.json"
+            result = self.run_cli(
+                "--format", "json", "--stdin", "--allowlist", str(allowlist_path), input_text=text
+            )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        payload = json.loads(result.stdout)
+        record = payload["files"][0]
+        self.assertNotIn("allowed", record)
+
+    def test_path_hint_without_stdin_is_rejected(self):
+        result = self.run_cli("--path-hint", "wiki/raw/x.md")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--path-hint", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

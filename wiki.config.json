@@ -28,7 +28,8 @@
   "privacy": {
     "taxonomy_version": "2026-09-10",
     "ledger_required_for": ["transcript"],
-    "staging_dir": ".staging"
+    "staging_dir": ".staging",
+    "allowlist": "wiki/privacy-allowlist.json"
   },
   "share": {
     "destinations": {}

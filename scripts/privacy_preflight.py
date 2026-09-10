@@ -6,6 +6,18 @@ identifiers, explicit no-record phrases, control-bypass language, and
 untrusted-instruction patterns. Output never contains a matched value, a
 source line's text, or anything beyond categories, reason codes, line
 numbers, file paths, hashes and counts.
+
+An owner-approved allowlist (configured at ``privacy.allowlist`` in
+``wiki.config.json``, or given via ``--allowlist``) lets one specific finding
+in one specific file pass, once an owner records its path, exact sha256, and
+reason code(s) in the allowlist JSON file. A finding is only ever suppressed
+while the file's current text still hashes to the recorded value; any other
+change re-blocks it. Use ``--no-allowlist`` to ignore the allowlist entirely
+(for CI auditing), and ``--path-hint`` with ``--stdin`` to consult it for
+piped text (this is what ``scripts/hooks/guard_write.py`` uses via
+``scan_text_for_path``). See ``load_allowlist``, ``find_config`` and
+``allowed_findings`` for the public helpers; an invalid allowlist file fails
+the whole run (status ``error``, exit 1) rather than being silently ignored.
 """
 
 from __future__ import annotations
@@ -18,6 +30,7 @@ import sys
 import unicodedata
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Iterable, Optional
 
 
 @dataclass(frozen=True, order=True)
@@ -25,6 +38,10 @@ class Finding:
     category: str
     reason_code: str
     line: int
+
+
+class AllowlistError(Exception):
+    """Raised when a configured or explicit allowlist file exists but is malformed."""
 
 
 PATTERNS = (
@@ -302,6 +319,282 @@ def scan_stdin_text(text: str) -> dict[str, object]:
     }
 
 
+def find_config(start_dirs: Iterable[Path]) -> Optional[Path]:
+    """Walk upward from each of ``start_dirs`` (in the order given) looking for
+    a ``wiki.config.json``. Returns the first match found, or ``None`` if none
+    of the start directories (or their ancestors) contain one.
+    """
+    visited: set[Path] = set()
+    for start in start_dirs:
+        try:
+            current = Path(start).resolve()
+        except OSError:
+            continue
+        while current not in visited:
+            visited.add(current)
+            candidate = current / "wiki.config.json"
+            if candidate.is_file():
+                return candidate
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+    return None
+
+
+def _configured_allowlist_path(config_path: Path) -> Optional[Path]:
+    """Read ``privacy.allowlist`` from ``config_path`` and resolve it relative
+    to the config file's directory. Returns ``None`` if unset or the config
+    itself cannot be read/parsed (that is not this function's error to raise).
+    """
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    privacy = data.get("privacy")
+    if not isinstance(privacy, dict):
+        return None
+    configured = privacy.get("allowlist")
+    if not isinstance(configured, str) or not configured:
+        return None
+    return (config_path.parent / configured).resolve()
+
+
+_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+_ALLOWLIST_REQUIRED_ENTRY_FIELDS = ("path", "sha256", "reason_codes", "approved_by", "date")
+
+
+def load_allowlist(path: Path) -> dict:
+    """Load and validate an owner-approved allowlist JSON file.
+
+    Raises ``AllowlistError`` naming ``path`` and the structural problem if the
+    file is not valid JSON or does not match the documented schema (a
+    ``schema_version: 1`` object with an ``entries`` list of path/sha256/
+    reason_codes/approved_by/date records). Never includes the file's contents
+    in the error message. Callers should only invoke this when the path is
+    known to exist; absence of the file is not an error condition here.
+    """
+    path = Path(path)
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise AllowlistError(f"cannot read allowlist file {path}: {exc}") from exc
+
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        raise AllowlistError(f"allowlist file {path} is not valid JSON") from exc
+
+    if not isinstance(data, dict):
+        raise AllowlistError(f"allowlist file {path} must contain a JSON object")
+
+    if data.get("schema_version") != 1:
+        raise AllowlistError(f"allowlist file {path} has a missing or unsupported schema_version")
+
+    entries = data.get("entries")
+    if not isinstance(entries, list):
+        raise AllowlistError(f"allowlist file {path} must have an 'entries' list")
+
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            raise AllowlistError(f"allowlist file {path}: entries[{index}] must be an object")
+        for field in _ALLOWLIST_REQUIRED_ENTRY_FIELDS:
+            if field not in entry:
+                raise AllowlistError(
+                    f"allowlist file {path}: entries[{index}] is missing required field '{field}'"
+                )
+        if not isinstance(entry["path"], str) or not entry["path"]:
+            raise AllowlistError(f"allowlist file {path}: entries[{index}].path must be a non-empty string")
+        if not isinstance(entry["sha256"], str) or not _SHA256_HEX.match(entry["sha256"]):
+            raise AllowlistError(
+                f"allowlist file {path}: entries[{index}].sha256 must be 64 lowercase hex characters"
+            )
+        reason_codes = entry["reason_codes"]
+        if not isinstance(reason_codes, list) or not reason_codes or not all(
+            isinstance(code, str) and code for code in reason_codes
+        ):
+            raise AllowlistError(
+                f"allowlist file {path}: entries[{index}].reason_codes must be a non-empty list of strings"
+            )
+        if not isinstance(entry["approved_by"], str) or not entry["approved_by"]:
+            raise AllowlistError(
+                f"allowlist file {path}: entries[{index}].approved_by must be a non-empty string"
+            )
+        if not isinstance(entry["date"], str) or not entry["date"]:
+            raise AllowlistError(f"allowlist file {path}: entries[{index}].date must be a non-empty string")
+        if "note" in entry and not isinstance(entry["note"], str):
+            raise AllowlistError(f"allowlist file {path}: entries[{index}].note must be a string")
+
+    return data
+
+
+def allowed_findings(
+    findings: list[Finding], relative_path: str, text: str, allowlist: Optional[dict]
+) -> tuple[list[Finding], list[Finding]]:
+    """Split ``findings`` into ``(kept, allowed)`` using ``allowlist`` entries.
+
+    A finding is allowed when some entry's ``path`` equals ``relative_path``
+    exactly, that entry's ``sha256`` equals the sha256 of ``text``, and the
+    finding's ``reason_code`` is in that entry's ``reason_codes``. ``allowlist``
+    may be ``None`` or empty, in which case nothing is allowed.
+    """
+    if not allowlist or not findings:
+        return list(findings), []
+
+    text_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    allowed_reason_codes: set[str] = set()
+    for entry in allowlist.get("entries", []):
+        if entry.get("path") != relative_path:
+            continue
+        if entry.get("sha256") != text_sha:
+            continue
+        allowed_reason_codes.update(entry.get("reason_codes", []))
+
+    kept: list[Finding] = []
+    allowed: list[Finding] = []
+    for finding in findings:
+        if finding.reason_code in allowed_reason_codes:
+            allowed.append(finding)
+        else:
+            kept.append(finding)
+    return kept, allowed
+
+
+def _resolve_relative_path(path: str, config_dir: Path) -> Optional[str]:
+    """Return ``path`` resolved and made relative to ``config_dir``, POSIX-style."""
+    try:
+        resolved = Path(path).resolve()
+        return resolved.relative_to(Path(config_dir).resolve()).as_posix()
+    except (OSError, ValueError):
+        return None
+
+
+def _apply_allowlist_to_record(
+    record: dict, path: str, text: str, config_dir: Path, allowlist: Optional[dict]
+) -> dict:
+    """Mutate-and-return a scan record, moving allowlisted findings to ``allowed``.
+
+    Matches against both the path exactly as given and the path resolved and
+    made relative to ``config_dir``, per the allowlist matching rule. A record
+    with no remaining findings becomes ``status: pass``.
+    """
+    if not allowlist or record["status"] != "blocked":
+        return record
+
+    findings = [
+        Finding(item["category"], item["reason_code"], item["line"]) for item in record["findings"]
+    ]
+    kept, allowed = allowed_findings(findings, path, text, allowlist)
+
+    resolved_relative = _resolve_relative_path(path, config_dir)
+    if resolved_relative is not None and resolved_relative != path:
+        kept, extra_allowed = allowed_findings(kept, resolved_relative, text, allowlist)
+        allowed = allowed + extra_allowed
+
+    record["findings"] = [asdict(item) for item in sorted(kept)]
+    record["status"] = "blocked" if kept else "pass"
+    if allowed:
+        record["allowed"] = [asdict(item) for item in sorted(allowed)]
+    return record
+
+
+def scan_text_for_path(
+    text: str,
+    path: str,
+    project_dir: Path,
+    allowlist_path: Optional[Path] = None,
+    use_allowlist: bool = True,
+) -> dict:
+    """Scan ``text`` as though it were the file at ``path`` and apply the
+    owner-approved allowlist configured near ``project_dir`` (or the explicit
+    ``allowlist_path``), so an owner-approved file can be rewritten with
+    identical content without being re-blocked. ``path`` need not exist on
+    disk (this is how ``--stdin --path-hint`` and ``guard_write.py`` use it).
+
+    Returns a record shaped like :func:`scan_file`'s — ``path``, ``status``,
+    ``findings``, ``source`` — plus an ``allowed`` field when the allowlist
+    removed one or more findings. Raises ``AllowlistError`` if an allowlist
+    file is found (configured or explicit) but is malformed; callers that want
+    fail-open behavior (like the write guard) should let that propagate to
+    their own top-level error handling.
+    """
+    findings = scan_text(text)
+    record: dict = {
+        "path": path,
+        "status": "blocked" if findings else "pass",
+        "findings": [asdict(item) for item in findings],
+        "source": source_binding(text),
+    }
+    if not use_allowlist or record["status"] != "blocked":
+        return record
+
+    search_dirs = [Path(project_dir)]
+    try:
+        search_dirs.append(Path(path).resolve().parent)
+    except OSError:
+        pass
+    config_path = find_config(search_dirs)
+    config_dir = config_path.parent if config_path else Path(project_dir)
+
+    resolved_allowlist_path = allowlist_path
+    if resolved_allowlist_path is None and config_path is not None:
+        resolved_allowlist_path = _configured_allowlist_path(config_path)
+
+    if resolved_allowlist_path is None or not Path(resolved_allowlist_path).exists():
+        return record
+
+    allowlist = load_allowlist(resolved_allowlist_path)
+    return _apply_allowlist_to_record(record, path, text, config_dir, allowlist)
+
+
+def _read_text_quietly(path: str) -> Optional[str]:
+    try:
+        return Path(path).read_bytes().decode("utf-8")
+    except (OSError, UnicodeError):
+        return None
+
+
+def _discover_allowlist(args: argparse.Namespace) -> tuple[Path, Optional[dict]]:
+    """Resolve the config directory and load the effective allowlist for a CLI run.
+
+    Honors ``--no-allowlist`` (disables entirely) and ``--allowlist`` (overrides
+    the configured path). Raises ``AllowlistError`` if an allowlist file exists
+    but is malformed; absence of the file is never an error.
+    """
+    if args.no_allowlist:
+        return Path.cwd(), None
+
+    search_dirs = [Path.cwd()]
+    for file_path in args.files:
+        try:
+            search_dirs.append(Path(file_path).resolve().parent)
+        except OSError:
+            continue
+    if args.path_hint:
+        try:
+            search_dirs.append(Path(args.path_hint).resolve().parent)
+        except OSError:
+            pass
+
+    config_path = find_config(search_dirs)
+    config_dir = config_path.parent if config_path else Path.cwd()
+
+    allowlist_path: Optional[Path]
+    if args.allowlist:
+        allowlist_path = Path(args.allowlist)
+    elif config_path is not None:
+        allowlist_path = _configured_allowlist_path(config_path)
+    else:
+        allowlist_path = None
+
+    if allowlist_path is None or not allowlist_path.exists():
+        return config_dir, None
+
+    return config_dir, load_allowlist(allowlist_path)
+
+
 def overall_status(records: list[dict[str, object]]) -> str:
     statuses = {record["status"] for record in records}
     if "blocked" in statuses:
@@ -324,7 +617,11 @@ def render_text(overall: str, records: list[dict[str, object]], quiet: bool) -> 
         status = record["status"]
         if quiet and status not in ("blocked", "error"):
             continue
-        lines.append(f"- {record['path']}: {status}")
+        allowed = record.get("allowed") or []
+        if status == "pass" and allowed:
+            lines.append(f"- {record['path']}: pass ({len(allowed)} allowed by allowlist)")
+        else:
+            lines.append(f"- {record['path']}: {status}")
         if status == "blocked":
             for finding in record["findings"]:
                 lines.append(
@@ -335,7 +632,13 @@ def render_text(overall: str, records: list[dict[str, object]], quiet: bool) -> 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Scan files (or stdin) for privacy quarantine content without disclosing matches."
+        description=(
+            "Scan files (or stdin) for privacy quarantine content without disclosing matches. "
+            "An owner-approved allowlist (wiki.config.json's privacy.allowlist, or --allowlist) "
+            "can suppress one recorded finding for one file once its exact sha256 and reason "
+            "code are on record; any other change to the file re-blocks it. Use --no-allowlist "
+            "to ignore it, e.g. for a CI audit run."
+        )
     )
     parser.add_argument("files", nargs="*", help="File paths to scan.")
     parser.add_argument("--format", choices=("text", "json"), default="text")
@@ -343,15 +646,51 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--stdin", action="store_true", help="Also scan standard input as '<stdin>'."
     )
+    parser.add_argument(
+        "--allowlist",
+        metavar="PATH",
+        help="Override the configured privacy.allowlist path.",
+    )
+    parser.add_argument(
+        "--no-allowlist",
+        action="store_true",
+        help="Ignore any allowlist, configured or explicit (e.g. for CI auditing).",
+    )
+    parser.add_argument(
+        "--path-hint",
+        metavar="RELATIVE_PATH",
+        help="With --stdin, consult the allowlist as if stdin's text were this file.",
+    )
     args = parser.parse_args(argv)
+
+    if args.path_hint and not args.stdin:
+        parser.error("--path-hint may only be used with --stdin")
+    if args.allowlist and args.no_allowlist:
+        parser.error("--allowlist and --no-allowlist are mutually exclusive")
+
+    try:
+        config_dir, allowlist = _discover_allowlist(args)
+    except AllowlistError as exc:
+        print(f"privacy preflight: {exc}", file=sys.stderr)
+        return 1
 
     records: list[dict[str, object]] = []
     for path in args.files:
-        records.append(scan_file(path))
+        record = scan_file(path)
+        if allowlist and record["status"] == "blocked":
+            text = _read_text_quietly(path)
+            if text is not None:
+                record = _apply_allowlist_to_record(record, path, text, config_dir, allowlist)
+        records.append(record)
 
     if args.stdin:
         stdin_text = sys.stdin.read()
-        records.append(scan_stdin_text(stdin_text))
+        record = scan_stdin_text(stdin_text)
+        if allowlist and args.path_hint and record["status"] == "blocked":
+            record = _apply_allowlist_to_record(
+                record, args.path_hint, stdin_text, config_dir, allowlist
+            )
+        records.append(record)
 
     if not records:
         parser.error("no input: provide at least one FILE or use --stdin")

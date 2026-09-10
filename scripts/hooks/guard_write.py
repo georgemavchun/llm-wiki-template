@@ -9,8 +9,12 @@ Reads a PreToolUse JSON payload from stdin for the ``Write``, ``Edit`` and
    must be moved into place after a manual privacy-preflight scan, never
    created or edited by a file tool.
 2. Any write whose new content trips ``privacy_preflight.scan_text`` is
-   refused. The category and reason code are reported; the matched value
-   itself is never printed anywhere.
+   refused, unless every tripped finding is covered by an owner-approved
+   entry in the project's privacy allowlist (see
+   ``privacy_preflight.scan_text_for_path``, ``load_allowlist``) for this
+   exact path and exact content. The category and reason code are reported
+   for anything still blocked; the matched value itself is never printed
+   anywhere.
 
 Exit codes follow the Claude Code hook contract: ``0`` allows the tool call,
 ``2`` blocks it (the stderr message is shown to the model). Any other tool
@@ -117,15 +121,15 @@ def run(payload: dict) -> int:
     new_text = _collect_new_text(tool_name, tool_input)
 
     sys.path.insert(0, str(project_dir / "scripts"))
-    from privacy_preflight import scan_text  # noqa: E402  (deliberate late import)
+    from privacy_preflight import scan_text_for_path  # noqa: E402  (deliberate late import)
 
-    findings = scan_text(new_text)
-    if findings:
-        for finding in findings[:MAX_FINDINGS_REPORTED]:
+    record = scan_text_for_path(new_text, str(resolved_target), project_dir)
+    if record["status"] == "blocked":
+        for finding in record["findings"][:MAX_FINDINGS_REPORTED]:
             print(
                 "guard_write: blocked — {category}/{reason} at new-content line {line} "
                 "(value not shown). Remove or redact it before writing.".format(
-                    category=finding.category, reason=finding.reason_code, line=finding.line
+                    category=finding["category"], reason=finding["reason_code"], line=finding["line"]
                 ),
                 file=sys.stderr,
             )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -124,6 +125,71 @@ class GuardWriteTests(unittest.TestCase):
         result = _run_guard_write(payload, self.project_dir)
         self.assertEqual(result.returncode, 2)
         self.assertNotIn("MIIB", result.stdout)
+
+    def _write_allowlist(self, entries: list) -> None:
+        allowlist_path = self.project_dir / "wiki" / "privacy-allowlist.json"
+        allowlist_path.parent.mkdir(parents=True, exist_ok=True)
+        allowlist_path.write_text(
+            json.dumps({"schema_version": 1, "entries": entries}), encoding="utf-8"
+        )
+
+    def test_write_matching_allowlisted_path_and_sha_is_allowed(self):
+        content = "This is off the record.\n"
+        self._write_allowlist(
+            [
+                {
+                    "path": "wiki/entities/allowed.md",
+                    "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                    "reason_codes": ["explicit-no-record-en"],
+                    "approved_by": "Owner Name",
+                    "date": "2026-09-10",
+                }
+            ]
+        )
+        payload = self._payload("Write", {"file_path": "wiki/entities/allowed.md", "content": content})
+        result = _run_guard_write(payload, self.project_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_write_with_unlisted_finding_alongside_allowlisted_one_is_blocked(self):
+        content = "This is off the record.\nPassword: correcthorsebattery\n"
+        self._write_allowlist(
+            [
+                {
+                    "path": "wiki/entities/allowed2.md",
+                    "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                    "reason_codes": ["explicit-no-record-en"],
+                    "approved_by": "Owner Name",
+                    "date": "2026-09-10",
+                }
+            ]
+        )
+        payload = self._payload("Write", {"file_path": "wiki/entities/allowed2.md", "content": content})
+        result = _run_guard_write(payload, self.project_dir)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("labelled-secret", result.stderr)
+        self.assertNotIn("explicit-no-record", result.stderr)
+        self.assertNotIn("correcthorsebattery", result.stdout)
+        self.assertNotIn("correcthorsebattery", result.stderr)
+
+    def test_write_with_different_content_at_allowlisted_path_is_still_blocked(self):
+        allowlisted_content = "This is off the record.\n"
+        self._write_allowlist(
+            [
+                {
+                    "path": "wiki/entities/allowed3.md",
+                    "sha256": hashlib.sha256(allowlisted_content.encode("utf-8")).hexdigest(),
+                    "reason_codes": ["explicit-no-record-en"],
+                    "approved_by": "Owner Name",
+                    "date": "2026-09-10",
+                }
+            ]
+        )
+        different_content = "This is off the record too.\n"
+        payload = self._payload(
+            "Write", {"file_path": "wiki/entities/allowed3.md", "content": different_content}
+        )
+        result = _run_guard_write(payload, self.project_dir)
+        self.assertEqual(result.returncode, 2)
 
     def test_unrelated_tool_is_allowed(self):
         payload = self._payload("Bash", {"command": "ls"})
