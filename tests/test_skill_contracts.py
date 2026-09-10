@@ -9,6 +9,7 @@ into the template.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -31,27 +32,31 @@ EXPECTED_SKILLS = {
 MAX_SKILL_BODY_LINES = 300
 MAX_FRONTMATTER_CHARS = 1024
 
-# Strings that must never appear in the template. They identify the author's
-# employer, colleagues, side projects or machine. Keep this list boring and
-# specific; it is a leak detector, not a style guide.
-LEAK_DENYLIST = (
-    "Moneff",
-    "moneff",
-    "Farkhod",
-    "Sanjar",
-    "Dolgolev",
-    "Bakhtiyor",
-    "Nigora",
-    "Konstantinos",
-    "Ovidiu",
-    "Artemii",
-    "Zubarevich",
-    "ClearBank",
-    "/Users/georgemavchun",
-    "CursorProjects",
-    "Staminity",
-)
+# Tokens that must never appear in the template: they identify the author's
+# employer, colleagues, side projects or machine. Stored as truncated SHA-256
+# digests of the lower-cased token so that this file does not itself carry the
+# names. To add one: hashlib.sha256(token.lower().encode()).hexdigest()[:16].
+LEAK_TOKEN_DIGESTS = {
+    "a6a730f9f1eea9b8",
+    "1b2d508a6f17fa0d",
+    "080fe6f590d456fc",
+    "d270e98479adda0a",
+    "fcc2a18b4079fcef",
+    "1e5ac53c5cb05153",
+    "c1a52bcdc61d1d46",
+    "11ca8c69aa8125c7",
+    "6fd94efcc2a792a0",
+    "ae81dfd97ea4c68d",
+    "35fa30dac78f9e55",
+    "dc05d0cbfe2d4fb4",
+    "b375896da51bea82",
+    "24a88b6d50134cdf",
+    "11ab22b90a1aa58b",
+    "86d81fd7ab6fe795",
+    "9dc3d2c9d90f02a1",
+}
 LEAK_EXEMPT = {"LICENSE"}
+TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9]{3,}")
 
 SCRIPT_REF = re.compile(r"scripts/(?:hooks/)?[a-z_]+\.py")
 MD_LINK = re.compile(r"\[[^\]]*\]\(([^)#\s]+)(?:#[^)]*)?\)")
@@ -214,7 +219,7 @@ class AgentAndSettingsTest(unittest.TestCase):
 
 
 class LeakDetectorTest(unittest.TestCase):
-    def test_no_author_specific_strings(self):
+    def test_no_author_specific_tokens(self):
         offenders = []
         for path in tracked_or_present_files():
             if path.name in LEAK_EXEMPT:
@@ -223,15 +228,18 @@ class LeakDetectorTest(unittest.TestCase):
                 text = path.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError):
                 continue
-            for needle in LEAK_DENYLIST:
-                if needle in text:
-                    offenders.append(f"{path.relative_to(REPO)}: {needle}")
-        self.assertEqual(offenders, [], "author-specific strings found:\n" + "\n".join(offenders))
+            seen = set()
+            for token in TOKEN.findall(text):
+                digest = hashlib.sha256(token.lower().encode("utf-8")).hexdigest()[:16]
+                if digest in LEAK_TOKEN_DIGESTS and digest not in seen:
+                    seen.add(digest)
+                    offenders.append(f"{path.relative_to(REPO)}: token digest {digest}")
+        self.assertEqual(offenders, [], "author-specific tokens found:\n" + "\n".join(offenders))
 
     def test_no_absolute_home_paths(self):
         offenders = []
         for path in tracked_or_present_files():
-            if path.name in LEAK_EXEMPT:
+            if path.name in LEAK_EXEMPT or path.name == Path(__file__).name:
                 continue
             try:
                 text = path.read_text(encoding="utf-8")
