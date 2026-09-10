@@ -199,6 +199,31 @@ class PrivacyPreflightCliTest(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assert_blocked_without_value(phrase, phrase, reason)
 
+    def test_no_record_phrasing_variants_are_blocked(self):
+        variants = [
+            "Please don't put this in the notes.",
+            "Do not put that in the minutes.",
+            "Never write this down.",
+            "This is not for the record.",
+            "Don't record this, ok?",
+            "That part is not to be minuted.",
+            "This stays between us.",
+            "Please don't mention this to anyone.",
+        ]
+        for phrase in variants:
+            with self.subTest(phrase=phrase):
+                self.assert_blocked_without_value(phrase, phrase, "explicit-no-record-en")
+
+    def test_ordinary_project_talk_is_not_flagged_as_no_record(self):
+        benign = (
+            "Don't include it in the release scope for now.\n"
+            "We record every deployment in the runbook.\n"
+            "Please write the summary in the wiki by Friday.\n"
+            "Do not put the config in the repo root; use the settings folder.\n"
+        )
+        result = self.run_cli("--format", "json", "--stdin", input_text=benign)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_control_bypass_language_is_blocked(self):
         phrase = "Here is how to bypass the AML alert threshold."
         self.assert_blocked_without_value(phrase, phrase, "control-bypass")

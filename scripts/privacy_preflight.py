@@ -121,9 +121,19 @@ PATTERNS = (
         "explicit-no-record",
         "explicit-no-record-en",
         re.compile(
-            r"\b(?:off the record|do not write (?:this|that) down|don't write (?:this|that) down|"
-            r"do not put (?:this|that) in (?:the )?notes|keep (?:this|that) between us|"
-            r"do not tell anyone)\b",
+            # Explicit requests not to record something. The negation accepts
+            # "do not", "don't", "never" and "please don't"; the verb needs a
+            # notes/record/minutes context or "down" so ordinary project talk
+            # ("don't include it in the release") does not trip it.
+            r"\b(?:off the record|not for the (?:record|notes|minutes)|"
+            r"(?:please )?(?:do not|don't|never)\s+(?:write|put|record|note|include|mention)\s+"
+            r"(?:this|that|it|any of this|what i (?:just )?said)\s+"
+            r"(?:down|in (?:the |my |your |our )?(?:notes|minutes|record|records|wiki|summary|transcript))|"
+            r"(?:please )?(?:do not|don't)\s+record\s+(?:this|that|it|any of this)|"
+            r"not to be (?:recorded|minuted|noted|written down)|"
+            r"keep (?:this|that|it) between us|(?:this|that) stays between us|strictly between us|"
+            r"(?:please )?(?:do not|don't)\s+tell anyone|"
+            r"(?:please )?(?:do not|don't)\s+(?:mention|repeat)\s+(?:this|that|it)\s+to anyone)\b",
             re.I,
         ),
     ),

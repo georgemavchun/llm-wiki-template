@@ -32,6 +32,8 @@ python3 scripts/privacy_preflight.py <file> --format json
 
 For a transcript, build the classification ledger now and validate it (`validate_privacy_ledger.py`, exit `0` required; exit `3` is a block, exit `2` is a correction loop, not a question for the user).
 
+**When a source is blocked** (scanner exit `2` or ledger exit `3`) and it sits in `wiki/raw/inbox/`, move it out of the repository's tracked area before reporting: `mkdir -p .staging/blocked && mv wiki/raw/inbox/<file> .staging/blocked/`. The hooks cannot classify content; a blocked file left in the inbox would be committed by the next `git add -A`. Tell the owner where the file is. It stays there until the owner decides.
+
 ### 2. Place the source
 
 Choose the slug: kebab-case ASCII, descriptive, stable (`2026-09-10-vendor-security-review`). Date-prefix dated material with the source date, not today.
@@ -75,7 +77,7 @@ For a transcript add, after `## Summary` and before `## Key claims`:
 - [ ] <Action> — Owner: <name or not specified>; Due: <date or not specified>; Status: agreed | proposed | suggested follow-up
 ```
 
-Only actions the transcript supports. Never invent an owner, deadline or commitment. If none: `No explicit action items were recorded.` Blocks classified `personal` get a neutral summary at most; `quarantine` blocks never reach this page.
+Only actions the transcript supports. Never invent an owner, deadline or commitment. If none: `No explicit action items were recorded.` Blocks classified `personal` may be summarized faithfully on this source page, without identifying quotes; downstream entity and concept pages get a neutral abstraction at most. `quarantine` blocks never reach any page.
 
 ### 6. Update entity and concept pages
 

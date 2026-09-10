@@ -45,7 +45,7 @@ Never store, even in `raw/`: passwords, API keys, tokens, private keys, recovery
 
 Every page declares `sensitivity:`:
 
-- `personal` (default) — never leaves this wiki
+- `personal` (default) — never leaves this wiki; covers personal data and confidential business material alike
 - `restricted` — may reach a team wiki only with per-item approval, marked restricted there
 - `shareable` — may reach a team wiki after normal review
 - `public` — already public information
