@@ -1,0 +1,133 @@
+#!/bin/sh
+# pre-commit: enforce wiki privacy and integrity guardrails.
+#
+# POSIX sh; must run under macOS bash 3.2 and dash. Installed via
+# `git config core.hooksPath scripts/hooks` (scripts/bootstrap.py does this).
+#
+# Checks, in order:
+#   1. Refuse to commit anything staged under .staging/.
+#   2. Refuse a modify/delete/rename/copy of an existing file under
+#      <wiki_root>/raw/ unless WIKI_ALLOW_RAW_CHANGE=1 is set.
+#   3. Run scripts/privacy_preflight.py --quiet over every added/modified
+#      staged file under <wiki_root>/.
+#   4. Run gitleaks over the staged diff if it is on PATH.
+#
+# Bypass with `git commit --no-verify` only when you are sure.
+
+warn() {
+    echo "pre-commit: $1" >&2
+}
+
+block() {
+    echo "pre-commit: $1" >&2
+    echo "pre-commit: blocked (use git commit --no-verify only if you are sure)" >&2
+    exit 1
+}
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -z "$repo_root" ]; then
+    block "not inside a git work tree"
+fi
+cd "$repo_root" || block "cannot change directory to repo root $repo_root"
+
+wiki_root="wiki"
+if command -v python3 >/dev/null 2>&1; then
+    detected_root=$(python3 -c 'import json;print(json.load(open("wiki.config.json"))["wiki_root"])' 2>/dev/null)
+    if [ -n "$detected_root" ]; then
+        wiki_root="$detected_root"
+    fi
+fi
+
+tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/wiki-precommit.XXXXXX" 2>/dev/null)
+if [ -z "$tmp_dir" ] || [ ! -d "$tmp_dir" ]; then
+    block "cannot create a temporary working directory"
+fi
+trap 'rm -rf "$tmp_dir"' EXIT INT TERM
+
+# --- 1. refuse to commit the privacy staging area ---
+git diff --cached --name-only -z > "$tmp_dir/staged.z" 2>/dev/null
+tr '\0' '\n' < "$tmp_dir/staged.z" > "$tmp_dir/staged"
+staging_hit=0
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    case "$f" in
+        .staging/*) staging_hit=1 ;;
+    esac
+done < "$tmp_dir/staged"
+if [ "$staging_hit" -eq 1 ]; then
+    block "refusing to commit staged privacy area .staging/"
+fi
+
+# --- 2. refuse modify/delete/rename/copy of an existing raw/ file ---
+git diff --cached --name-status -- "$wiki_root/raw" > "$tmp_dir/raw_status" 2>/dev/null
+raw_hit=0
+raw_list=""
+while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    status_field=$(printf '%s\n' "$line" | cut -f1)
+    case "$status_field" in
+        A*) continue ;;
+        M*|D*|R*|C*)
+            raw_hit=1
+            paths=$(printf '%s\n' "$line" | cut -f2-)
+            raw_list="$raw_list
+  - $status_field	$paths"
+            ;;
+        *) continue ;;
+    esac
+done < "$tmp_dir/raw_status"
+
+if [ "$raw_hit" -eq 1 ]; then
+    if [ "$WIKI_ALLOW_RAW_CHANGE" = "1" ]; then
+        echo "pre-commit: WIKI_ALLOW_RAW_CHANGE=1 set — allowing owner-authorized raw change(s):$raw_list"
+    else
+        block "modification or deletion of existing file(s) under $wiki_root/raw/, which is add-only:$raw_list
+set WIKI_ALLOW_RAW_CHANGE=1 for an owner-authorized redaction"
+    fi
+fi
+
+# --- 3. privacy preflight over added/modified staged wiki files ---
+if ! command -v python3 >/dev/null 2>&1; then
+    block "python3 not found; cannot run the privacy scanner over staged wiki files (bypass: git commit --no-verify)"
+fi
+
+git diff --cached --name-only --diff-filter=AM -z -- "$wiki_root" > "$tmp_dir/wiki_files.z" 2>/dev/null
+tr '\0' '\n' < "$tmp_dir/wiki_files.z" > "$tmp_dir/wiki_files"
+
+set --
+while IFS= read -r wf; do
+    [ -z "$wf" ] && continue
+    set -- "$@" "$wf"
+done < "$tmp_dir/wiki_files"
+
+if [ "$#" -gt 0 ]; then
+    scan_output=$(python3 scripts/privacy_preflight.py --quiet "$@" 2>&1)
+    scan_status=$?
+    if [ "$scan_status" -eq 2 ]; then
+        printf '%s\n' "$scan_output" >&2
+        block "privacy preflight blocked one or more staged wiki files"
+    elif [ "$scan_status" -ne 0 ]; then
+        printf '%s\n' "$scan_output" >&2
+        block "privacy preflight failed to run"
+    fi
+fi
+
+# --- 4. gitleaks, if available ---
+if command -v gitleaks >/dev/null 2>&1; then
+    gitleaks_output=$(gitleaks git --pre-commit --staged --redact --no-banner 2>&1)
+    gitleaks_status=$?
+    if [ "$gitleaks_status" -eq 126 ] || [ "$gitleaks_status" -eq 127 ]; then
+        gitleaks_output=$(gitleaks protect --staged --redact --no-banner 2>&1)
+        gitleaks_status=$?
+    elif printf '%s' "$gitleaks_output" | grep -qi "unknown command"; then
+        gitleaks_output=$(gitleaks protect --staged --redact --no-banner 2>&1)
+        gitleaks_status=$?
+    fi
+    if [ "$gitleaks_status" -ne 0 ]; then
+        printf '%s\n' "$gitleaks_output" >&2
+        block "gitleaks found a likely secret in the staged changes"
+    fi
+fi
+
+echo "pre-commit: ok"
+exit 0
