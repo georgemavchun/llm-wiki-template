@@ -293,7 +293,10 @@ def scan_file(path: str) -> dict[str, object]:
         return {"path": path, "status": "error", "findings": []}
 
     if not text.strip():
-        return {"path": path, "status": "error", "findings": []}
+        # Nothing to scan (a .gitkeep, an empty placeholder). Skipped, not an
+        # error: an empty file cannot leak anything, and the pre-commit hook
+        # must not fail a commit that merely adds one.
+        return {"path": path, "status": "skipped", "findings": []}
 
     findings = scan_text(text)
     status = "blocked" if findings else "pass"

@@ -52,7 +52,7 @@ A typical first run looks like this:
 Wiki: 0 pages (0 sources, 0 entities, 0 concepts, 0 synthesis) · 0 errors · 0 warnings · 1 file in raw/inbox
 Last log: [2026-09-10] bootstrap | wiki created from llm-wiki-template
 [done] lint: ran wiki_lint.py --brief
-[done] tests: 171 tests passed
+[done] tests: 210 tests passed
 
 Next steps
   1. Open Claude Code here
@@ -123,7 +123,7 @@ git commit -m "ingest: welcome tutorial"
 A pre-commit hook runs automatically, installed by bootstrap. It:
 
 - refuses to commit anything under `.staging/`;
-- refuses a modified or deleted file under `wiki/raw/` unless `WIKI_ALLOW_RAW_CHANGE=1` is set, see [privacy.md](privacy.md);
+- refuses a modified, deleted or renamed file under `wiki/raw/` (outside the `raw/inbox/` drop zone) unless `WIKI_ALLOW_RAW_CHANGE=1` is set, see [privacy.md](privacy.md);
 - runs the privacy scanner on every staged wiki file;
 - runs `gitleaks` on the staged diff, if it is installed.
 
@@ -148,9 +148,9 @@ Open the `wiki/` folder, not the repository root, as an Obsidian vault. The grap
 
 | Problem | What is happening | What to do |
 |---|---|---|
-| A commit was blocked by the pre-commit hook | One of the checks in "First commit" above failed | Read the stderr message and fix the cause: unstage `.staging/`, unset `WIKI_ALLOW_RAW_CHANGE`, or handle the flagged content. Bypass only with `git commit --no-verify`, and only if you are sure. |
+| A commit was blocked by the pre-commit hook | One of the checks in "First commit" above failed | Read the message and fix the cause: unstage `.staging/`, handle the flagged content, or record a scanner false positive in the allowlist (see [privacy.md](privacy.md)). Use `WIKI_ALLOW_RAW_CHANGE=1` only for an authorized raw-file redaction. `git commit --no-verify` skips every check and leaves no record; keep it for a broken hook. |
 | A write was blocked while the agent was editing | `guard_write.py` refused a write under `wiki/raw/`, or content that tripped the scanner | Do not ask the agent to work around it. If it is a false positive on ordinary content, say so and let it rephrase. If the target was `wiki/raw/`, the fix is always to stage, scan, then move the file, never to edit it in place. |
-| A source was blocked at ingest ("preflight blocked") | `privacy_preflight.py` exited `2` | Read the category and reason code the agent reports, never the value. Decide: redact and retain, keep a sanitized extract, or keep only a pointer. Exit `1` means the scan itself failed to run; fix that first. |
+| A source was blocked at ingest ("preflight blocked") | `privacy_preflight.py` exited `2` | Read the category and reason code the agent reports, never the value. Decide: retain as-is (a false positive, recorded in the allowlist), redact and retain, keep a sanitized extract, or keep only a pointer. Exit `1` means the scan itself failed to run; fix that first. |
 | Tests fail right after bootstrap | Something in your environment differs from the template's assumptions | Read the failing test names. A common cause is an old Python; check `python3 --version` again. |
 | Placeholders like `{{OWNER_NAME}}` are still visible | Bootstrap has not run, or ran before you answered the owner prompt | Run `python3 scripts/bootstrap.py --owner "Your Name"` again; it is safe to repeat. |
 | `python3: command not found` | Python is not installed, or only available as `python` | Install Python 3.9 or newer, or use whichever command your system provides, consistently, everywhere this guide shows `python3`. |

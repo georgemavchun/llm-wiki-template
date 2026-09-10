@@ -64,12 +64,12 @@ class PrivacyPreflightUnitTest(unittest.TestCase):
         record = privacy_preflight.scan_file("/definitely/does/not/exist.md")
         self.assertEqual(record, {"path": "/definitely/does/not/exist.md", "status": "error", "findings": []})
 
-    def test_scan_file_error_on_empty_file(self):
+    def test_scan_file_skips_empty_file(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "empty.md"
             path.write_text("   \n", encoding="utf-8")
             record = privacy_preflight.scan_file(str(path))
-        self.assertEqual(record["status"], "error")
+        self.assertEqual(record["status"], "skipped")
         self.assertNotIn("source", record)
 
     def test_scan_file_skipped_by_extension(self):
@@ -277,13 +277,15 @@ class PrivacyPreflightCliTest(unittest.TestCase):
         self.assertEqual(payload["files"][0]["status"], "error")
         self.assertNotIn("source", payload["files"][0])
 
-    def test_empty_source_fails_closed(self):
+    def test_empty_source_is_skipped_not_blocked(self):
+        # A .gitkeep or empty placeholder must not fail the pre-commit hook.
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = self.write_file(tmp_dir, "empty.md", "")
             result = self.run_cli(str(path), "--format", "json")
-        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["status"], "pass")
+        self.assertEqual(payload["files"][0]["status"], "skipped")
 
     def test_multi_file_mixed_pass_blocked_skipped(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
