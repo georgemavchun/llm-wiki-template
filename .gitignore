@@ -1,0 +1,28 @@
+# Staging area for content awaiting the privacy preflight — never committed
+.staging/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+.cursor/
+
+# Obsidian workspace state (open wiki/ as a vault if you like)
+.obsidian/
+wiki/.obsidian/
+
+# Claude Code personal overrides
+.claude/settings.local.json
+CLAUDE.local.md
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Local scratch
+tmp/

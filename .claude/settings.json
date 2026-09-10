@@ -1,0 +1,59 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 scripts/*)",
+      "Bash(python3 -m unittest*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git mv*)",
+      "Bash(mv wiki/raw/inbox/*)",
+      "Bash(mv .staging/*)",
+      "Bash(ls*)",
+      "Bash(rg*)",
+      "Bash(grep*)",
+      "Bash(wc*)",
+      "Bash(shasum*)",
+      "Bash(cat wiki/*)"
+    ],
+    "ask": [
+      "Bash(rm *)",
+      "Bash(git push*)",
+      "Bash(git reset*)",
+      "Bash(git checkout*)",
+      "Bash(git restore*)",
+      "Bash(git clean*)",
+      "Bash(git rebase*)"
+    ],
+    "deny": [
+      "Edit(./wiki/raw/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/scripts/hooks/guard_write.py\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/scripts/hooks/session_start.py\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}

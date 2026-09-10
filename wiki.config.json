@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "wiki_root": "wiki",
+  "page_families": {
+    "sources": "source",
+    "entities": "entity",
+    "concepts": "concept",
+    "synthesis": "synthesis"
+  },
+  "caps": {
+    "soft_lines": 400,
+    "hard_lines": 800
+  },
+  "index": {
+    "root": "INDEX.md",
+    "shard_prefix": "INDEX-"
+  },
+  "staleness_days": {
+    "low_reliability": 30,
+    "pending_review": 30,
+    "cold_page": 180
+  },
+  "scale_thresholds": {
+    "shard_index_at_pages": 150,
+    "search_step_at_pages": 300,
+    "subdivide_directory_at_pages": 50
+  },
+  "privacy": {
+    "taxonomy_version": "2026-09-10",
+    "ledger_required_for": ["transcript"],
+    "staging_dir": ".staging"
+  },
+  "share": {
+    "destinations": {}
+  }
+}
