@@ -1,0 +1,70 @@
+name: inbox drainer (manual)
+
+# DISABLED BY DEFAULT — manual dispatch only.
+#
+# What it does when you run it: if wiki/raw/inbox/ contains files, it runs
+# Claude Code in GitHub Actions with the wiki-ingest skill and opens a pull
+# request with the resulting pages for you to review.
+#
+# Read before enabling a schedule:
+#   * Everything under the repository, including every inbox file, is sent to
+#     the model provider (Anthropic) from GitHub's infrastructure. If any class
+#     of content in your wiki must not transit either service, keep this off.
+#   * The privacy preflight still runs inside the skill, but the interactive
+#     "ask the owner" step cannot happen here: blocked sources are left in the
+#     inbox and reported in the PR body.
+#   * Requires the repository secret ANTHROPIC_API_KEY (or a
+#     CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`; see the action docs).
+#
+# To schedule, uncomment the `schedule:` block below.
+
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "0 6 * * 1-5"
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  drain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Count inbox files
+        id: inbox
+        run: |
+          root="$(python3 -c 'import json; print(json.load(open("wiki.config.json"))["wiki_root"])')"
+          count="$(find "$root/raw/inbox" -type f ! -name '.gitkeep' ! -name '.*' | wc -l | tr -d ' ')"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "Inbox files: $count"
+
+      - name: Ingest with Claude Code
+        if: steps.inbox.outputs.count != '0'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Process every file in the wiki inbox with the wiki-ingest skill,
+            following wiki/CLAUDE.md. You are unattended:
+            - skip the "discuss with the owner" step;
+            - keep reliability conservative (medium, or low if unsure);
+            - put anything questionable under "## Pending Review";
+            - do not edit wiki/CLAUDE.md;
+            - if the privacy preflight blocks a file, leave it in the inbox,
+              write nothing derived from it, and list only its category,
+              reason code and line number in your summary.
+            When done: run python3 scripts/wiki_lint.py --wiki-root wiki and
+            fix any error you introduced; stage the files you created or
+            modified; commit on a new branch named
+            wiki/auto-ingest-${{ github.run_id }}; push it; open a pull
+            request titled "Wiki: auto-ingest ${{ steps.inbox.outputs.count }}
+            inbox files" whose body lists files ingested, pages created and
+            touched, anything flagged for review, and any blocked file.
+          claude_args: |
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(python3 scripts/*),Bash(mv wiki/raw/inbox/*),Bash(git *),Bash(gh pr create*)"

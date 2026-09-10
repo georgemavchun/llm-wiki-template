@@ -1,0 +1,73 @@
+name: checks
+
+# Runs on every push and pull request:
+#   1. tooling tests (stdlib unittest)
+#   2. deterministic wiki lint (errors fail the job)
+#   3. raw sources are add-only (a modified or deleted wiki/raw/ file fails
+#      unless a commit in the range is a `redaction:` commit)
+#   4. privacy preflight over wiki files added or modified in the range
+# No third-party actions beyond checkout and setup-python; no network calls
+# from the scripts; nothing here sends wiki content anywhere.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Tooling tests
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Wiki lint
+        run: |
+          root="$(python3 -c 'import json; print(json.load(open("wiki.config.json"))["wiki_root"])')"
+          python3 scripts/wiki_lint.py --wiki-root "$root" --format text
+
+      - name: Determine diff base
+        id: base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$base" 2>/dev/null; then
+            base="$(git rev-list --max-parents=0 HEAD | tail -n1)"
+          fi
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+
+      - name: Raw sources are add-only
+        run: |
+          root="$(python3 -c 'import json; print(json.load(open("wiki.config.json"))["wiki_root"])')"
+          changed="$(git diff --name-status --diff-filter=MDR "${{ steps.base.outputs.sha }}" HEAD -- "$root/raw/" || true)"
+          if [ -n "$changed" ]; then
+            echo "Modified, deleted or renamed raw sources:"
+            echo "$changed"
+            if git log --format=%s "${{ steps.base.outputs.sha }}..HEAD" | grep -qiE '^redaction:'; then
+              echo "Allowed: a redaction: commit is in the range."
+            else
+              echo "::error::wiki/raw is add-only. Redactions need a commit whose subject starts with 'redaction:'."
+              exit 1
+            fi
+          else
+            echo "No raw source was modified."
+          fi
+
+      - name: Privacy preflight on changed wiki files
+        run: |
+          root="$(python3 -c 'import json; print(json.load(open("wiki.config.json"))["wiki_root"])')"
+          git diff --name-only --diff-filter=AM -z "${{ steps.base.outputs.sha }}" HEAD -- "$root/" \
+            | xargs -0 -r python3 scripts/privacy_preflight.py --quiet
