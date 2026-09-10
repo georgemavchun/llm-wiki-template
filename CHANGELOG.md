@@ -13,4 +13,6 @@ First release.
 - Deterministic tooling (Python 3.9+, stdlib only): `wiki_lint.py`, `wiki_search.py`, `new_page.py`, `bootstrap.py`, `privacy_preflight.py`, `validate_privacy_ledger.py`.
 - Guardrails: Claude Code `PreToolUse` write guard, `SessionStart` status, permission deny on `wiki/raw/`, git pre-commit hook (raw add-only, staging never committed, privacy scan, optional gitleaks), CI checks.
 - Sensitivity taxonomy with four classes (`quarantine`, `personal`, `restricted`, `shareable`) and a content-free classification ledger for transcripts.
+- Owner-approved, hash-bound allowlist (`wiki/privacy-allowlist.json`) for recorded scanner false positives, honoured by the scanner, the write guard, the pre-commit hook and CI.
+- `wiki/raw/inbox/` is a drop zone the owner may edit; the add-only rule applies once a file has moved into `wiki/raw/`.
 - Documentation: README, onboarding, privacy, skills, customizing, design, FAQ.
