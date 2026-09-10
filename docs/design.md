@@ -22,7 +22,7 @@ The pattern this template builds on describes raw sources, agent-written pages, 
 
 ## Decisions and trade-offs
 
-The template repository itself is created privately, with the template-repository flag enabled rather than left as an ordinary repository to fork. A copy can be made public later if its owner chooses, but a personal wiki has no reason to start that way.
+The template repository itself is public, with the template-repository flag enabled rather than left as an ordinary repository to fork, so anyone can start a copy without being a collaborator. Each copy should start private: a personal wiki has no reason to be public.
 
 The license is MIT: permissive enough that a colleague can adapt or redistribute a copy without asking, which matters for something meant to be copied many times inside and outside a company.
 

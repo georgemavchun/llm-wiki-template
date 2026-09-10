@@ -27,7 +27,7 @@ Colleagues create their own copy with GitHub's **"Use this template"** button, r
 
 ## 3. Decisions made autonomously (owner may override)
 
-1. **Repo name** `llm-wiki-template`, created **private** in `georgemavchun`, with the *template repository* flag enabled. Flip to public when ready; private template repos are usable by collaborators only.
+1. **Repo name** `llm-wiki-template` in `georgemavchun`, with the *template repository* flag enabled. Created private, then made **public** on the owner's instruction (2026-09-10) so colleagues can use the template without being collaborators.
 2. **License** MIT (permissive, template-friendly). Change if the company prefers otherwise.
 3. **Layout** wiki content lives under `wiki/` (Obsidian vault = `wiki/`), tooling at repo root. Matches George's personal repo and keeps docs/scripts out of the vault.
 4. **Python 3.9+ standard library only** for every script. No pip installs. `gitleaks` is an optional extra layer, auto-detected.
