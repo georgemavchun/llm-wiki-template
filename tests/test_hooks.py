@@ -318,6 +318,33 @@ class PreCommitTests(unittest.TestCase):
         allowed = self._git("commit", "-m", "modify raw with override", env={"WIKI_ALLOW_RAW_CHANGE": "1"})
         self.assertEqual(allowed.returncode, 0, allowed.stderr)
 
+    def test_inbox_is_a_drop_zone_and_the_move_into_raw_is_allowed(self):
+        inbox = self.repo / "wiki" / "raw" / "inbox" / "note.md"
+        inbox.parent.mkdir(parents=True, exist_ok=True)
+        inbox.write_text("dropped source\n", encoding="utf-8")
+        self._git("add", "wiki/raw/inbox/note.md", check=True)
+        self._git("commit", "-m", "drop a source into the inbox", check=True)
+
+        # The owner may still edit or remove an inbox file without any override.
+        inbox.write_text("dropped source, corrected by the owner\n", encoding="utf-8")
+        self._git("add", "wiki/raw/inbox/note.md", check=True)
+        edited = self._git("commit", "-m", "fix inbox file")
+        self.assertEqual(edited.returncode, 0, edited.stderr)
+
+        # The documented ingest step (mv inbox -> raw) is a rename in git terms.
+        target = self.repo / "wiki" / "raw" / "note.md"
+        inbox.rename(target)
+        self._git("add", "-A", "wiki/raw", check=True)
+        moved = self._git("commit", "-m", "ingest: move note into raw")
+        self.assertEqual(moved.returncode, 0, moved.stderr)
+
+        # Once outside the inbox, a rename is a change to a cleared source.
+        target.rename(self.repo / "wiki" / "raw" / "renamed.md")
+        self._git("add", "-A", "wiki/raw", check=True)
+        renamed = self._git("commit", "-m", "rename a cleared source")
+        self.assertNotEqual(renamed.returncode, 0)
+        self.assertIn("add-only", renamed.stdout + renamed.stderr)
+
     @unittest.skipUnless(
         (REPO_ROOT / "scripts" / "privacy_preflight.py").exists(),
         "scripts/privacy_preflight.py not present yet",
